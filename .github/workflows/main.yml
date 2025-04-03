@@ -1,0 +1,76 @@
+# This workflow uses actions that are not certified by GitHub.
+# They are provided by a third-party and are governed by
+# separate terms of service, privacy policy, and support
+# documentation.
+
+name: Build WinDurango
+
+on:
+  push:
+    branches: [ "main" ]
+
+env:
+  # Path to the solution file relative to the root of the project.
+  SOLUTION_FILE_PATH: .
+
+permissions:
+  contents: read
+
+jobs:
+  Build:
+    name: Build (${{ matrix.configuration }})
+    continue-on-error : ${{matrix.continue}} 
+    strategy:
+      fail-fast: true
+      matrix:
+        configuration: [Debug]
+        continue: [false]
+        include:
+          - configuration: Release
+            continue: true
+     
+    runs-on: windows-latest
+        
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Checkout private tools
+      uses: actions/checkout@v4
+      with:
+        repository: WinDurango/WinDurango-IDLs
+        token: ${{ secrets.IDL_REPO_SECRET }}
+        path: IDLs
+      
+    - name: Copying IDLs
+      run: |
+        ls .
+        ls .\IDLs
+        Copy-Item -Path .\IDLs\* -Destination .\dlls\winrt_x\External\ -Recurse
+        ls .\dlls\winrt_x\External\
+        
+    - name: Add MSBuild to PATH
+      uses: microsoft/setup-msbuild@v1.0.2
+
+    - name: Restore NuGet packages
+      working-directory: ${{env.GITHUB_WORKSPACE}}
+      run: nuget restore ${{env.SOLUTION_FILE_PATH}}
+
+    - name: Build
+      working-directory: ${{env.GITHUB_WORKSPACE}}
+      # Add additional options to the MSBuild command line here (like platform or verbosity level).
+      # See https://docs.microsoft.com/visualstudio/msbuild/msbuild-command-line-reference
+      run: msbuild /m /p:Configuration=${{ matrix.configuration }} /p:BuildInParallel=true /property:Platform=x64 ${{env.SOLUTION_FILE_PATH}}
+
+    - name: Create commit hash file (for versioning shits)
+      run: git rev-parse --short HEAD > D:\a\WinDurango\WinDurango\x64\${{ matrix.configuration }}\commit_hash.txt
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: WinDurango-${{ matrix.configuration }}
+        path: |
+          D:\a\WinDurango\WinDurango\x64\${{ matrix.configuration }}\*.dll
+          D:\a\WinDurango\WinDurango\x64\${{ matrix.configuration }}\*.pdb
+          D:\a\WinDurango\WinDurango\x64\${{ matrix.configuration }}\commit_hash.txt
